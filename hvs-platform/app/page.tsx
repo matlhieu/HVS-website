@@ -8,7 +8,7 @@ export default function Home() {
       <div className="grid grid-cols-2 gap-4 text-center">
         <Link href="/" className="p-4 border rounded hover:bg-gray-800">Accueil</Link>
         <Link href="/gestion" className="p-4 border rounded hover:bg-gray-800">Gestion</Link>
-        <Link href="/assistant" className="p-4 border rounded hover:bg-gray-800">Assistant</Link>
+        <Link href="/assistanat" className="p-4 border rounded hover:bg-gray-800">Assistanat</Link>
         <Link href="/contact" className="p-4 border rounded hover:bg-gray-800">Contact</Link>
       </div>
     </main>
