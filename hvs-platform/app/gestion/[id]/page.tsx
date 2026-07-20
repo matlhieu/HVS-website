@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // init db client
@@ -14,97 +14,167 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
     const resolvedParams = use(params);
     const categoryId = resolvedParams.id;
 
+    // core states
     const [files, setFiles] = useState<any[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
-    const [newFile, setNewFile] = useState<File | null>(null);
-    const [showUploadForm, setShowUploadForm] = useState(false); // toggle form visibility
+    const [loading, setLoading] = useState(true);
+
+    // pin protection states
+    const [isUnlocked, setIsUnlocked] = useState(false);
+    const [expectedPin, setExpectedPin] = useState<string | null>(null);
+    const [pinInput, setPinInput] = useState('');
+
+    // ref for hidden file input
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        // check admin session
-        const checkAuth = async () => {
+        const loadData = async () => {
+            // check admin auth
             const { data: { session } } = await supabase.auth.getSession();
-            setIsAdmin(!!session);
-        };
+            const adminStatus = !!session;
+            setIsAdmin(adminStatus);
 
-        // fetch files for this category
-        const fetchFiles = async () => {
-            const { data } = await supabase
+            // fetch folder pin requirement
+            const { data: catData } = await supabase
+                .from('categories')
+                .select('pin_code')
+                .eq('id', categoryId)
+                .single();
+
+            // bypass pin if admin or no pin configured
+            if (adminStatus || !catData?.pin_code) {
+                setIsUnlocked(true);
+            } else {
+                setExpectedPin(catData.pin_code);
+                // check temporary session storage for previous unlock
+                if (sessionStorage.getItem(`unlocked_${categoryId}`)) {
+                    setIsUnlocked(true);
+                }
+            }
+
+            // fetch available files
+            const { data: resData } = await supabase
                 .from('resources')
                 .select('*')
                 .eq('category_id', categoryId);
-            if (data) setFiles(data);
+            if (resData) setFiles(resData);
+
+            setLoading(false);
         };
 
-        checkAuth();
-        fetchFiles();
+        loadData();
     }, [categoryId]);
 
-    // handle new file upload
-    const handleUpload = async (e: React.FormEvent) => {
+    // process pin code submission
+    const handlePinSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newFile) return;
+        if (pinInput === expectedPin) {
+            setIsUnlocked(true);
+            sessionStorage.setItem(`unlocked_${categoryId}`, 'true');
+        } else {
+            alert('Code PIN incorrect');
+            setPinInput('');
+        }
+    };
 
-        const fileExt = newFile.name.split('.').pop();
+    // open os file picker
+    const triggerFileInput = () => {
+        fileInputRef.current?.click();
+    };
+
+    // handle instant upload on file selection
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}.${fileExt}`;
         const filePath = `${categoryId}/${fileName}`;
 
-        // upload to bucket
-        await supabase.storage.from('documents').upload(filePath, newFile);
+        // direct upload to bucket
+        await supabase.storage.from('documents').upload(filePath, file);
         const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
 
-        // insert db record
-        await supabase.from('resources').insert([{
-            title: newFile.name.replace(`.${fileExt}`, ''),
+        // insert db record and get returning data
+        const { data: newResource } = await supabase.from('resources').insert([{
+            title: file.name.replace(`.${fileExt}`, ''),
             file_type: fileExt?.toUpperCase(),
             category_id: categoryId,
             file_url: publicUrl
-        }]);
+        }]).select().single();
 
-        window.location.reload();
+        // update ui state without reload
+        if (newResource) setFiles([...files, newResource]);
+
+        // reset input allowing same file re-upload if needed
+        e.target.value = '';
     };
 
-    // delete resource
+    // process resource deletion
     const handleDelete = async (fileId: string, fileUrl: string) => {
-        // parse path from url
+        // prompt explicit confirmation
+        if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce fichier ?")) return;
+
+        // parse bucket path
         const urlParts = fileUrl.split('/');
         const filePath = `${urlParts[urlParts.length - 2]}/${urlParts[urlParts.length - 1]}`;
 
-        // rm from bucket and db
+        // clean db and bucket
         await supabase.storage.from('documents').remove([filePath]);
         await supabase.from('resources').delete().eq('id', fileId);
 
-        // update ui
         setFiles(files.filter(f => f.id !== fileId));
     };
 
+    if (loading) return <main className="p-24"><p>Chargement...</p></main>;
+
+    // render lock screen if pin is required and missing
+    if (!isUnlocked) {
+        return (
+            <main className="flex min-h-screen items-center justify-center p-24">
+                <form onSubmit={handlePinSubmit} className="bg-gray-900 p-8 rounded border border-gray-700 flex flex-col gap-4 shadow-lg">
+                    <h2 className="text-xl font-bold text-center">Accès protégé</h2>
+                    <input
+                        type="password"
+                        placeholder="Code PIN"
+                        value={pinInput}
+                        onChange={(e) => setPinInput(e.target.value)}
+                        className="p-2 text-black rounded text-center tracking-[0.5em]"
+                        maxLength={4}
+                        required
+                    />
+                    <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500 font-bold text-white transition-colors">
+                        Déverrouiller
+                    </button>
+                </form>
+            </main>
+        );
+    }
+
+    // render authenticated folder view
     return (
         <main className="p-24 min-h-screen">
             <div className="flex items-center gap-4 mb-8">
                 <h1 className="text-3xl font-bold">Ressources</h1>
                 {isAdmin && (
-                    <button
-                        onClick={() => setShowUploadForm(!showUploadForm)}
-                        className="bg-blue-600 hover:bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-xl leading-none"
-                        title="Add file"
-                    >
-                        +
-                    </button>
+                    <>
+                        <button
+                            onClick={triggerFileInput}
+                            className="bg-blue-600 hover:bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-xl leading-none transition-colors"
+                            title="Ajouter un fichier"
+                        >
+                            +
+                        </button>
+                        {/* hidden system input bound to ref */}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileSelect}
+                            className="hidden"
+                        />
+                    </>
                 )}
             </div>
-
-            {isAdmin && showUploadForm && (
-                <form onSubmit={handleUpload} className="mb-8 p-4 bg-gray-900 rounded border border-gray-700 flex gap-4 items-center transition-all">
-                    <input
-                        type="file"
-                        onChange={(e) => setNewFile(e.target.files?.[0] || null)}
-                        className="text-white text-sm"
-                        required
-                    />
-                    <button type="submit" className="bg-green-600 px-4 py-2 rounded font-bold text-white text-sm hover:bg-green-500">
-                        Confirmer l'ajout
-                    </button>
-                </form>
-            )}
 
             <div className="grid gap-4">
                 {files.map(file => (
@@ -118,7 +188,7 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
                                 <button
                                     onClick={() => handleDelete(file.id, file.file_url)}
                                     className="text-red-500 hover:text-red-400 p-1 transition-colors"
-                                    title="Delete file"
+                                    title="Supprimer le fichier"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />

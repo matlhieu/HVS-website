@@ -10,6 +10,7 @@ export default function Home() {
         <Link href="/gestion" className="p-4 border rounded hover:bg-gray-800">Gestion</Link>
         <Link href="/assistanat" className="p-4 border rounded hover:bg-gray-800">Assistanat</Link>
         <Link href="/contact" className="p-4 border rounded hover:bg-gray-800">Contact</Link>
+        <Link href="/admin" className="p-4 border rounded hover:bg-gray-800">Admin</Link>
       </div>
     </main>
   );
