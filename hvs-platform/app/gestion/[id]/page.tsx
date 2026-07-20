@@ -18,11 +18,17 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
     const [files, setFiles] = useState<any[]>([]);
     const [isAdmin, setIsAdmin] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [categoryName, setCategoryName] = useState<string>('');
+
+    // file editing states
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editTitle, setEditTitle] = useState('');
 
     // pin protection states
     const [isUnlocked, setIsUnlocked] = useState(false);
     const [expectedPin, setExpectedPin] = useState<string | null>(null);
     const [pinInput, setPinInput] = useState('');
+    const [pinError, setPinError] = useState(false);
 
     // ref for hidden file input
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,12 +40,16 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
             const adminStatus = !!session;
             setIsAdmin(adminStatus);
 
-            // fetch folder pin requirement
+            // fetch folder details (name and pin)
             const { data: catData } = await supabase
                 .from('categories')
-                .select('pin_code')
+                .select('name, pin_code')
                 .eq('id', categoryId)
                 .single();
+
+            if (catData) {
+                setCategoryName(catData.name);
+            }
 
             // bypass pin if admin or no pin configured
             if (adminStatus || !catData?.pin_code) {
@@ -70,9 +80,10 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
         e.preventDefault();
         if (pinInput === expectedPin) {
             setIsUnlocked(true);
+            setPinError(false);
             sessionStorage.setItem(`unlocked_${categoryId}`, 'true');
         } else {
-            alert('Code PIN incorrect');
+            setPinError(true);
             setPinInput('');
         }
     };
@@ -110,6 +121,28 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
         e.target.value = '';
     };
 
+    // update file title in db
+    const handleRename = async (fileId: string) => {
+        if (!editTitle.trim() || editTitle === files.find(f => f.id === fileId)?.title) {
+            setEditingId(null);
+            return;
+        }
+
+        const { error } = await supabase
+            .from('resources')
+            .update({ title: editTitle.trim() })
+            .eq('id', fileId);
+
+        if (!error) {
+            // update ui state
+            setFiles(files.map(f => f.id === fileId ? { ...f, title: editTitle.trim() } : f));
+        } else {
+            alert('Erreur lors du renommage');
+        }
+
+        setEditingId(null);
+    };
+
     // process resource deletion
     const handleDelete = async (fileId: string, fileUrl: string) => {
         // prompt explicit confirmation
@@ -138,12 +171,18 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
                         type="password"
                         placeholder="Code PIN"
                         value={pinInput}
-                        onChange={(e) => setPinInput(e.target.value)}
+                        onChange={(e) => {
+                            setPinInput(e.target.value);
+                            setPinError(false);
+                        }}
                         className="p-2 text-black rounded text-center tracking-[0.5em]"
                         maxLength={4}
                         required
                     />
-                    <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500 font-bold text-white transition-colors">
+                    {pinError && (
+                        <p className="text-red-500 text-sm text-center font-bold">Code PIN incorrect</p>
+                    )}
+                    <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500 font-bold text-white transition-colors mt-2">
                         Déverrouiller
                     </button>
                 </form>
@@ -154,8 +193,16 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
     // render authenticated folder view
     return (
         <main className="p-24 min-h-screen">
+            <nav className="text-sm text-gray-400 mb-6 flex items-center gap-2">
+                <a href="/" className="hover:text-white transition-colors">Accueil</a>
+                <span>/</span>
+                <a href="/gestion" className="hover:text-white transition-colors">Gestion</a>
+                <span>/</span>
+                <span className="text-white font-medium">{categoryName || 'Dossier'}</span>
+            </nav>
+
             <div className="flex items-center gap-4 mb-8">
-                <h1 className="text-3xl font-bold">Ressources</h1>
+                <h1 className="text-3xl font-bold">Ressources - {categoryName}</h1>
                 {isAdmin && (
                     <>
                         <button
@@ -179,21 +226,60 @@ export default function SubfolderPage({ params }: { params: Promise<{ id: string
             <div className="grid gap-4">
                 {files.map(file => (
                     <div key={file.id} className="p-4 border border-gray-600 rounded flex justify-between items-center bg-gray-900">
-                        <a href={file.file_url} target="_blank" className="text-blue-400 hover:underline text-sm font-medium">
-                            {file.title}
-                        </a>
-                        <div className="flex items-center gap-4">
+                        {editingId === file.id ? (
+                            <div className="flex items-center gap-2 flex-grow mr-4">
+                                <input
+                                    type="text"
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    className="p-1 rounded text-black w-full text-sm"
+                                    autoFocus
+                                />
+                                <button
+                                    onClick={() => handleRename(file.id)}
+                                    className="bg-green-600 text-white p-1 rounded text-xs hover:bg-green-500"
+                                >
+                                    OK
+                                </button>
+                                <button
+                                    onClick={() => setEditingId(null)}
+                                    className="bg-gray-600 text-white p-1 rounded text-xs hover:bg-gray-500"
+                                >
+                                    Annuler
+                                </button>
+                            </div>
+                        ) : (
+                            <a href={file.file_url} target="_blank" className="text-blue-400 hover:underline text-sm font-medium truncate pr-4">
+                                {file.title}
+                            </a>
+                        )}
+
+                        <div className="flex items-center gap-4 shrink-0">
                             <span className="text-xs bg-gray-800 p-1 rounded text-white">{file.file_type}</span>
                             {isAdmin && (
-                                <button
-                                    onClick={() => handleDelete(file.id, file.file_url)}
-                                    className="text-red-500 hover:text-red-400 p-1 transition-colors"
-                                    title="Supprimer le fichier"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => {
+                                            setEditingId(file.id);
+                                            setEditTitle(file.title);
+                                        }}
+                                        className="text-blue-500 hover:text-blue-400 p-1 transition-colors"
+                                        title="Renommer le fichier"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={() => handleDelete(file.id, file.file_url)}
+                                        className="text-red-500 hover:text-red-400 p-1 transition-colors"
+                                        title="Supprimer le fichier"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>

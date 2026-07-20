@@ -21,9 +21,8 @@ export default function AdminPage() {
     const [categoryId, setCategoryId] = useState('');
     const [file, setFile] = useState<File | null>(null);
 
-    // pin states
-    const [pinCategoryId, setPinCategoryId] = useState('');
-    const [newPinCode, setNewPinCode] = useState('');
+    // pin states (mapping category id to its pin input value)
+    const [pins, setPins] = useState<{ [key: string]: string }>({});
 
     // filters states
     const [searchTerm, setSearchTerm] = useState('');
@@ -38,12 +37,20 @@ export default function AdminPage() {
                 return;
             }
 
-            // get subfolders
+            // get subfolders (excluding main folders like Gestion and Assistanat which have parent_id null)
             const { data: catData } = await supabase
                 .from('categories')
-                .select('id, name')
+                .select('id, name, pin_code')
                 .not('parent_id', 'is', null);
-            if (catData) setCategories(catData);
+
+            if (catData) {
+                setCategories(catData);
+                const initialPins: { [key: string]: string } = {};
+                catData.forEach(c => {
+                    initialPins[c.id] = c.pin_code || '';
+                });
+                setPins(initialPins);
+            }
 
             // get all resources
             const { data: resData } = await supabase
@@ -96,19 +103,18 @@ export default function AdminPage() {
     };
 
     // update folder pin
-    const handleUpdatePin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!pinCategoryId || !newPinCode) return;
-
+    const handleUpdatePin = async (catId: string) => {
+        const newPin = pins[catId];
         const { error } = await supabase
             .from('categories')
-            .update({ pin_code: newPinCode })
-            .eq('id', pinCategoryId);
+            .update({ pin_code: newPin ? newPin : null })
+            .eq('id', catId);
 
-        if (error) return alert(`Erreur DB: ${error.message}`);
-
-        alert('Code PIN mis à jour avec succès');
-        setNewPinCode('');
+        if (error) {
+            alert(`Erreur DB: ${error.message}`);
+        } else {
+            alert('Code PIN mis à jour avec succès');
+        }
     };
 
     // delete resource
@@ -138,7 +144,7 @@ export default function AdminPage() {
     if (loading) return <main className="p-24"><p>Vérification des accès...</p></main>;
 
     return (
-        <main className="p-12 min-h-screen">
+        <main className="p-12 min-h-screen text-white">
             <div className="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
                 <h1 className="text-3xl font-bold">Administration HVS</h1>
                 <button
@@ -162,23 +168,39 @@ export default function AdminPage() {
                             ))}
                         </select>
                         <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="p-2 border border-gray-600 rounded bg-gray-800 text-white text-sm" required />
-                        <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500 font-bold text-white mt-1 text-sm">Téléverser</button>
+                        <button type="submit" className="bg-blue-600 p-2 rounded hover:bg-blue-500 font-bold text-white mt-1 text-sm">Ajouter</button>
                     </form>
                 </section>
 
-                {/* pin update form */}
+                {/* pin management section */}
                 <section className="bg-gray-900 p-6 rounded border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4">Modifier un code PIN</h2>
-                    <form onSubmit={handleUpdatePin} className="flex flex-col gap-3">
-                        <select value={pinCategoryId} onChange={(e) => setPinCategoryId(e.target.value)} className="p-2 text-black rounded text-sm" required>
-                            <option value="">Sélectionner un dossier</option>
-                            {categories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>{cat.name}</option>
-                            ))}
-                        </select>
-                        <input type="text" placeholder="Nouveau code PIN (ex: 1234)" value={newPinCode} onChange={(e) => setNewPinCode(e.target.value)} className="p-2 text-black rounded text-sm" maxLength={4} pattern="\d{4}" title="Le code PIN doit contenir 4 chiffres" required />
-                        <button type="submit" className="bg-green-600 p-2 rounded hover:bg-green-500 font-bold text-white mt-1 text-sm">Mettre à jour</button>
-                    </form>
+                    <h2 className="text-xl font-bold mb-4">Gestion des codes PIN des dossiers</h2>
+                    <div className="flex flex-col gap-3 max-h-72 overflow-y-auto pr-2">
+                        {categories.map((cat) => (
+                            <div key={cat.id} className="p-3 border border-gray-700 rounded bg-gray-800 flex justify-between items-center">
+                                <div>
+                                    <p className="font-bold text-sm">{cat.name}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        maxLength={4}
+                                        value={pins[cat.id] || ''}
+                                        onChange={(e) => setPins({ ...pins, [cat.id]: e.target.value })}
+                                        placeholder="PIN"
+                                        className="p-1 w-16 text-black rounded text-center text-sm"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUpdatePin(cat.id)}
+                                        className="bg-green-600 px-3 py-1 rounded text-xs hover:bg-green-500 font-bold"
+                                    >
+                                        Modifier
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </section>
             </div>
 
