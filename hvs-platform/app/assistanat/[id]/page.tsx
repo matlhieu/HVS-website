@@ -78,8 +78,15 @@ export default function FolderPage() {
                     <p>Dossier vide.</p>
                 ) : (
                     files.map(file => (
-                        <div key={file.id} className="p-4 border border-gray-600 rounded flex justify-between">
-                            <span>{file.title}</span>
+                        <div key={file.id} className="p-4 border border-gray-600 rounded flex justify-between items-center">
+                            <a
+                                href={file.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 hover:underline font-bold"
+                            >
+                                {file.title}
+                            </a>
                             <span className="text-sm bg-gray-800 p-1 rounded">{file.file_type}</span>
                         </div>
                     ))
