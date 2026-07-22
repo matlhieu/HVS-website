@@ -28,6 +28,12 @@ export default function AdminPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
 
+    // new folder states
+    const [newFolderName, setNewFolderName] = useState('');
+    const [newFolderParentId, setNewFolderParentId] = useState('');
+    const [newFolderPin, setNewFolderPin] = useState('');
+    const [parentCategories, setParentCategories] = useState<any[]>([]);
+
     useEffect(() => {
         const checkAuthAndFetchData = async () => {
             // checking auth
@@ -51,6 +57,13 @@ export default function AdminPage() {
                 });
                 setPins(initialPins);
             }
+
+            // get parent categories (Gestion, Assistanat) for subfolder creation
+            const { data: parentData } = await supabase
+                .from('categories')
+                .select('id, name')
+                .is('parent_id', null);
+            if (parentData) setParentCategories(parentData);
 
             // get all resources
             const { data: resData } = await supabase
@@ -117,6 +130,30 @@ export default function AdminPage() {
         }
     };
 
+    // create new subfolder
+    const handleCreateCategory = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newFolderName || !newFolderParentId) return;
+
+        const { data: newCat, error } = await supabase
+            .from('categories')
+            .insert([{
+                name: newFolderName,
+                parent_id: newFolderParentId,
+                pin_code: newFolderPin ? newFolderPin : null
+            }])
+            .select('id, name, pin_code')
+            .single();
+
+        if (error) return alert(`Erreur DB: ${error.message}`);
+
+        setCategories([...categories, newCat]);
+        alert('Sous-dossier créé avec succès');
+        setNewFolderName('');
+        setNewFolderPin('');
+        setNewFolderParentId('');
+    };
+
     // delete resource
     const handleDeleteResource = async (resourceId: string, fileUrl: string) => {
         // extract path for deletion
@@ -172,6 +209,43 @@ export default function AdminPage() {
                     </form>
                 </section>
 
+                {/* create folder form */}
+                <section className="bg-gray-900 p-6 rounded border border-gray-700">
+                    <h2 className="text-xl font-bold mb-4">Créer un sous-dossier</h2>
+                    <form onSubmit={handleCreateCategory} className="flex flex-col gap-3">
+                        <input
+                            type="text"
+                            placeholder="Nom du sous-dossier"
+                            value={newFolderName}
+                            onChange={(e) => setNewFolderName(e.target.value)}
+                            className="p-2 text-black rounded text-sm"
+                            required
+                        />
+                        <select
+                            value={newFolderParentId}
+                            onChange={(e) => setNewFolderParentId(e.target.value)}
+                            className="p-2 text-black rounded text-sm"
+                            required
+                        >
+                            <option value="">Sélectionner le dossier parent</option>
+                            {parentCategories.map((parent) => (
+                                <option key={parent.id} value={parent.id}>{parent.name}</option>
+                            ))}
+                        </select>
+                        <input
+                            type="text"
+                            placeholder="Code PIN (optionnel, 4 chiffres)"
+                            value={newFolderPin}
+                            onChange={(e) => setNewFolderPin(e.target.value)}
+                            className="p-2 text-black rounded text-sm"
+                            maxLength={4}
+                        />
+                        <button type="submit" className="bg-purple-600 p-2 rounded hover:bg-purple-500 font-bold text-white mt-1 text-sm">
+                            Créer le sous-dossier
+                        </button>
+                    </form>
+                </section>
+
                 {/* pin management section */}
                 <section className="bg-gray-900 p-6 rounded border border-gray-700">
                     <h2 className="text-xl font-bold mb-4">Gestion des codes PIN des dossiers</h2>
@@ -202,55 +276,54 @@ export default function AdminPage() {
                         ))}
                     </div>
                 </section>
-            </div>
-
-            {/* compact list with filters and scroll */}
-            <section className="bg-gray-900 p-6 rounded border border-gray-700">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">Gestion des documents</h2>
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            placeholder="Rechercher..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="p-1 px-2 text-black rounded text-sm w-48"
-                        />
-                        <select
-                            value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                            className="p-1 px-2 text-black rounded text-sm w-40"
-                        >
-                            <option value="">Tous les dossiers</option>
-                            {categories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>{cat.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                {/* fixed height scrollable container */}
-                <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-600">
-                    {filteredResources.map((resource) => (
-                        <div key={resource.id} className="flex justify-between items-center p-2 bg-gray-800 rounded border border-gray-600">
-                            <div className="flex flex-col">
-                                <span className="font-bold text-sm">{resource.title} <span className="text-xs font-normal bg-gray-600 px-1 rounded ml-1">{resource.file_type}</span></span>
-                                <span className="text-xs text-gray-400">{resource.categories?.name}</span>
-                            </div>
-                            <div className="flex gap-3 items-center">
-                                <a href={resource.file_url} target="_blank" className="text-blue-400 hover:underline text-xs">Voir</a>
-                                <button
-                                    onClick={() => handleDeleteResource(resource.id, resource.file_url)}
-                                    className="bg-red-600 px-2 py-1 rounded text-xs font-bold text-white hover:bg-red-500"
-                                >
-                                    Supprimer
-                                </button>
-                            </div>
+                {/* compact list with filters and scroll */}
+                <section className="bg-gray-900 p-6 rounded border border-gray-700">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold">Gestion des documents</h2>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                placeholder="Rechercher..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="p-1 px-2 text-black rounded text-sm w-48"
+                            />
+                            <select
+                                value={filterCategory}
+                                onChange={(e) => setFilterCategory(e.target.value)}
+                                className="p-1 px-2 text-black rounded text-sm w-40"
+                            >
+                                <option value="">Tous les dossiers</option>
+                                {categories.map((cat) => (
+                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
+                            </select>
                         </div>
-                    ))}
-                    {filteredResources.length === 0 && <p className="text-gray-400 text-sm italic">Aucun document trouvé.</p>}
-                </div>
-            </section>
+                    </div>
+
+                    {/* fixed height scrollable container */}
+                    <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-600">
+                        {filteredResources.map((resource) => (
+                            <div key={resource.id} className="flex justify-between items-center p-2 bg-gray-800 rounded border border-gray-600">
+                                <div className="flex flex-col">
+                                    <span className="font-bold text-sm">{resource.title} <span className="text-xs font-normal bg-gray-600 px-1 rounded ml-1">{resource.file_type}</span></span>
+                                    <span className="text-xs text-gray-400">{resource.categories?.name}</span>
+                                </div>
+                                <div className="flex gap-3 items-center">
+                                    <a href={resource.file_url} target="_blank" className="text-blue-400 hover:underline text-xs">Voir</a>
+                                    <button
+                                        onClick={() => handleDeleteResource(resource.id, resource.file_url)}
+                                        className="bg-red-600 px-2 py-1 rounded text-xs font-bold text-white hover:bg-red-500"
+                                    >
+                                        Supprimer
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {filteredResources.length === 0 && <p className="text-gray-400 text-sm italic">Aucun document trouvé.</p>}
+                    </div>
+                </section>
+            </div>
         </main>
     );
 }
